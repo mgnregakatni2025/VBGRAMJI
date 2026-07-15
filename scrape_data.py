@@ -1,16 +1,8 @@
-import requests
 import json
-from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright
 from datetime import datetime
 
-# ==== Government Portal URL ====
-URL = "https://vbgramgrep.dord.gov.in/VBGRAMG/dpc_sms_new.aspx?payload=I5QSfTE_qFAyGCeNWR1jIpuvxX0ydiOBH1YYxS12Ra3wYkZP1vDDoemxzhEunPYxstfyN4A8zRExvEXsv0Y21F4pm4swFk7ip8e_Luv2xfcCYGJbtpZVqHfWDDccjKuIEhIAshIKsroe9unG4SDNLoTDj4_n4sMdUneRVM7HOtOedIo5fJ7Q2HgJ8Dp-IMCUxFZF4gD26Gxw6urBH9ZmxD1otO3T61GrInTIP06rc8wHTIKRhCMwq1p5j0SXvEZfh9gnti931jkiPo8peURG71tlldtHLodHfuCIfhBnP7NwSWXQWpe_43LF5uRw7xeGnMpkoI2h2Jk8PVW49NxdEQ"
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept-Language": "en-US,en;q=0.9"
-}
+URL = "https://vbgramgrep.dord.gov.in/VBGRAMG/dpc_sms_new.aspx?payload=I5QSfTE_qFAyGCeNWR1jIpuvxX0ydiOBH1YYxS12Ra3wYkZP1vDDoemxzhEunPYxstfyN4A8zRExvEXsv0Y21F4pm4swFk7ip8e_Luv2xfcCYGJbtpZVqHfWDDccjKuIEhIAshIKsroe9unG4SDNLoTDj4_n4sMdUneRVM7HOtOedIoSfJ7Q2HgJ8Dp-IMCUxFZF4gD26Gxw6urBH9ZmxD1otO3T61GrInTIP06rc8wHTIKRhCMwq1p5j0SXvEZfh9gnti931jkiPo8peURG71tlldtHLodHfuCIfhBnP7NwSWXQWpe_43LF5uRw7xeGnMpkoI2h2Jk8PVW49NxdEQ"
 
 FINAL_HEADER = [
     "SNo.", "Panchayats", "Total No. of Gram Panchayats (GPs)",
@@ -22,28 +14,54 @@ FINAL_HEADER = [
 ]
 
 
-def fetch_html():
-    print("🌐 Government वेबसाइट से डेटा लाया जा रहा है...")
-    response = requests.get(URL, headers=HEADERS, timeout=30)
-    response.raise_for_status()
-    return response.text
-
-
-def extract_table(html):
-    soup = BeautifulSoup(html, "html.parser")
-    table = soup.find("table", class_="table")
-    if table is None:
-        raise Exception("⚠️ Table नहीं मिली। Website का structure बदल गया हो सकता है।")
-    return table
-
-
-def parse_rows(table):
+def fetch_table_data():
     rows = []
-    for tr in table.find_all("tr"):
-        cells = tr.find_all(["td", "th"])
-        text_values = [c.get_text(strip=True) for c in cells]
-        if any(v != "" for v in text_values):
-            rows.append(text_values)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                       "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
+        page = context.new_page()
+
+        print("🌐 पेज खोला जा रहा है...")
+        response = page.goto(URL, wait_until="networkidle", timeout=60000)
+        print("Status Code:", response.status if response else "N/A")
+
+        try:
+            page.wait_for_selector("table.table", timeout=30000)
+        except Exception:
+            print("⚠️ Table selector 30 sec में नहीं मिला, फिर भी आगे बढ़ रहे हैं...")
+
+        # Debug: पेज का Title और थोड़ा HTML print करना
+        print("पेज का Title:", page.title())
+
+        table_locator = page.locator("table.table").first
+        count = table_locator.count()
+        print("टेबल मिली क्या (count):", count)
+
+        if count == 0:
+            # पूरा HTML देखकर debug करना
+            content = page.content()
+            print("---- पेज के HTML का पहला 1000 characters ----")
+            print(content[:1000])
+            browser.close()
+            raise Exception("⚠️ Table नहीं मिली। ऊपर HTML देखें।")
+
+        row_count = table_locator.locator("tr").count()
+        print(f"📋 Table में कुल {row_count} tr मिले")
+
+        for i in range(row_count):
+            tr = table_locator.locator("tr").nth(i)
+            cell_count = tr.locator("td, th").count()
+            row_data = []
+            for j in range(cell_count):
+                text = tr.locator("td, th").nth(j).inner_text().strip()
+                row_data.append(text)
+            if any(v != "" for v in row_data):
+                rows.append(row_data)
+
+        browser.close()
     return rows
 
 
@@ -82,11 +100,11 @@ def build_final_json(rows, mapping):
 def main():
     print("🔄 प्रक्रिया शुरू:", datetime.now())
 
-    html = fetch_html()
-    table = extract_table(html)
-    rows = parse_rows(table)
+    rows = fetch_table_data()
+    print(f"✅ कुल {len(rows)} rows निकाली गईं")
 
-    print(f"📋 कुल {len(rows)} rows मिलीं Table से")
+    if len(rows) == 0:
+        raise Exception("❌ कोई भी row नहीं मिली।")
 
     mapping = load_mapping()
     final_data = build_final_json(rows, mapping)
