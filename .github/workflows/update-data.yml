@@ -20,8 +20,10 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: जरूरी Libraries Install करना
-        run: pip install requests beautifulsoup4 lxml
+      - name: Playwright और Browser Install करना
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
 
       - name: Scraper Script चलाना
         run: python scrape_data.py
