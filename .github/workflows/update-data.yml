@@ -1,0 +1,35 @@
+name: Auto Update MGNREGA Data
+
+on:
+  schedule:
+    - cron: '30 18 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repository Checkout करना
+        uses: actions/checkout@v4
+
+      - name: Python सेटअप करना
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: जरूरी Libraries Install करना
+        run: pip install requests beautifulsoup4 lxml
+
+      - name: Scraper Script चलाना
+        run: python scrape_data.py
+
+      - name: नया data.json Commit करना
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add data.json
+          git diff --staged --quiet || git commit -m "Auto update data.json - $(date '+%Y-%m-%d %H:%M')"
+          git push
